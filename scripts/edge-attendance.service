@@ -1,0 +1,16 @@
+[Unit]
+Description=Edge Face Attendance Service
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rock
+WorkingDirectory=/home/rock/edge-attendance-system
+ExecStart=/usr/bin/python3 /home/rock/edge-attendance-system/main.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

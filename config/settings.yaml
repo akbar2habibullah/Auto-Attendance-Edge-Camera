@@ -1,0 +1,18 @@
+mqtt:
+  broker: "mqtt.your-cloud-server.com"
+  port: 1883
+  username: "device_user"
+  password: "device_password"
+  topic_prefix: "devices"
+
+camera:
+  index: 0
+  width: 1280
+  height: 720
+  rotation: 0
+
+system:
+  direction: "IN" # or "OUT"
+  debounce_seconds: 60 # Don't log the same person twice within 1 minute
+  similarity_threshold: 0.45
+  confidence_threshold: 0.5

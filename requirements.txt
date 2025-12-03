@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+paho-mqtt
+pyyaml
+numpy
+opencv-python-headless
+faiss-cpu
+requests
+aiofiles
