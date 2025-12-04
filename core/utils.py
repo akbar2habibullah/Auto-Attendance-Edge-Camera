@@ -54,12 +54,16 @@ def distance2kps(points, distance, max_shape=None):
     return np.stack(preds, axis=-1)
 
 def draw_bbox_info(frame, bbox, similarity, name, color=(0, 255, 0)):
-    x1, y1, x2, y2 = map(int, bbox)
+    # FIX: bbox has 5 elements (coords + score), we only want the first 4 coords
+    x1, y1, x2, y2 = map(int, bbox[:4]) 
 
     # Draw Name & Score
     label = f"{name}: {similarity:.2f}"
+    # Ensure text stays within frame
+    text_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
+    
     cv2.putText(
-        frame, label, (x1, y1-10),
+        frame, label, (x1, text_y),
         cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2
     )
 
@@ -73,9 +77,17 @@ def draw_bbox_info(frame, bbox, similarity, name, color=(0, 255, 0)):
     rect_height = int(similarity * (y2 - y1))
     rect_y_start = rect_y_end - rect_height
     
-    cv2.rectangle(frame, (rect_x_start, rect_y_start), (rect_x_end, rect_y_end), color, cv2.FILLED)
+    # Clip drawing to avoid errors if coordinates are weird
+    try:
+        cv2.rectangle(frame, (rect_x_start, rect_y_start), (rect_x_end, rect_y_end), color, cv2.FILLED)
+    except:
+        pass
 
 def draw_bbox_unknown(frame, bbox):
-    x1, y1, x2, y2 = map(int, bbox)
+    # FIX: Slice bbox[:4] here too
+    x1, y1, x2, y2 = map(int, bbox[:4])
+    
     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2) # Red box
-    cv2.putText(frame, "Unknown", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    
+    text_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
+    cv2.putText(frame, "Unknown", (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
