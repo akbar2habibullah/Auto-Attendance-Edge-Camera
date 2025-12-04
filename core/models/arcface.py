@@ -31,7 +31,7 @@ class ArcFace:
         logger.info(f"Loading ArcFace RKNN: {self.model_path}")
         self.rknn = RKNNLite()
         if self.rknn.load_rknn(self.model_path) != 0: raise Exception("Load RKNN failed")
-        if self.rknn.init_runtime(core_mask=RKNNLite.NPU_CORE_0) != 0: raise Exception("Init RKNN failed")
+        if self.rknn.init_runtime() != 0: raise Exception("Init RKNN failed")
 
     def _init_onnx(self):
         logger.info(f"Loading ArcFace ONNX: {self.model_path}")
