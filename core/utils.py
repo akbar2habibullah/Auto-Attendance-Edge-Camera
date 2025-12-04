@@ -52,3 +52,30 @@ def distance2kps(points, distance, max_shape=None):
         preds.append(px)
         preds.append(py)
     return np.stack(preds, axis=-1)
+
+def draw_bbox_info(frame, bbox, similarity, name, color=(0, 255, 0)):
+    x1, y1, x2, y2 = map(int, bbox)
+
+    # Draw Name & Score
+    label = f"{name}: {similarity:.2f}"
+    cv2.putText(
+        frame, label, (x1, y1-10),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2
+    )
+
+    # Draw Box
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+    # Draw Similarity Bar (visual indicator)
+    rect_x_start = x2 + 5
+    rect_x_end = rect_x_start + 10
+    rect_y_end = y2
+    rect_height = int(similarity * (y2 - y1))
+    rect_y_start = rect_y_end - rect_height
+    
+    cv2.rectangle(frame, (rect_x_start, rect_y_start), (rect_x_end, rect_y_end), color, cv2.FILLED)
+
+def draw_bbox_unknown(frame, bbox):
+    x1, y1, x2, y2 = map(int, bbox)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2) # Red box
+    cv2.putText(frame, "Unknown", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)

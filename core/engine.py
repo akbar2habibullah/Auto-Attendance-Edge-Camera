@@ -1,13 +1,13 @@
 import time
 import cv2
-import queue
 import threading
 import logging
-from typing import Optional
+import numpy as np # Add this
 
 from .models.scrfd import SCRFD
 from .models.arcface import ArcFace
 from .database import VectorDB
+from .utils import draw_bbox_info, draw_bbox_unknown # Import drawing helpers
 from services.local_storage import StorageService
 from services.mqtt_client import MQTTService
 
@@ -20,82 +20,99 @@ class InferenceEngine:
         self.mqtt = mqtt
         self.running = False
         
-        # Load Models
+        # Models
         self.detector = SCRFD(model_path="weights/det_500m.rknn", conf_thres=config['system']['confidence_threshold'])
         self.recognizer = ArcFace(model_path="weights/w600k_r50.rknn")
-        self.vectordb = VectorDB(db_path="./data/vectordb")
+        self.vectordb = VectorDB(db_path="data/vectordb")
         
-        # Debounce Cache: {name: last_seen_timestamp}
+        # Debounce logic
         self.debounce_cache = {}
         self.debounce_lock = threading.Lock()
+        
+        # Visualization Storage
+        self.latest_frame = None # Store the annotated frame here
+        self.frame_lock = threading.Lock()
 
     def _check_debounce(self, name: str) -> bool:
-        """Returns True if the person should be logged, False if recently seen."""
+        # ... (Keep existing debounce logic same as before) ...
         now = time.time()
         threshold = self.config['system']['debounce_seconds']
-        
         with self.debounce_lock:
             if name in self.debounce_cache:
-                last_seen = self.debounce_cache[name]
-                if now - last_seen < threshold:
-                    return False # Too soon
-            
-            # Update timestamp
+                if now - self.debounce_cache[name] < threshold:
+                    return False
             self.debounce_cache[name] = now
             return True
 
     def process_frame(self, frame):
         # 1. Detect
         bboxes, kpss = self.detector.detect(frame, max_num=5)
+        
+        # If no faces, just update latest frame and return
         if len(bboxes) == 0:
+            with self.frame_lock:
+                self.latest_frame = frame.copy()
             return
 
-        # 2. Recognize & Identify
+        # 2. Iterate faces
         for i, kps in enumerate(kpss):
+            bbox = bboxes[i]
+            
             # Get embedding
-            embedding = self.recognizer.get_embedding(frame, kps)
-            
-            # Search in Vector DB
-            name, similarity = self.vectordb.search(embedding, threshold=self.config['system']['similarity_threshold'])
-            
-            if name != "Unknown":
-                # 3. Check Debounce (Don't spam logs)
-                if self._check_debounce(name):
-                    direction = self.config['system']['direction']
-                    logger.info(f"Attendance: {name} ({direction}) - Sim: {similarity:.2f}")
+            try:
+                embedding = self.recognizer.get_embedding(frame, kps)
+                name, similarity = self.vectordb.search(embedding, threshold=self.config['system']['similarity_threshold'])
+                
+                if name != "Unknown":
+                    # Valid Match: Green Box
+                    draw_bbox_info(frame, bbox, similarity, name, (0, 255, 0))
                     
-                    # 4. Save to Local DB (SQLite)
-                    log_id = self.storage.add_log(name, direction, similarity)
+                    # Log Attendance
+                    if self._check_debounce(name):
+                        direction = self.config['system']['direction']
+                        logger.info(f"Attendance: {name} ({direction}) - Sim: {similarity:.2f}")
+                        
+                        log_id = self.storage.add_log(name, direction, similarity)
+                        payload = {
+                            "log_id": log_id, "name": name, 
+                            "direction": direction, "timestamp": time.time(),
+                            "device_id": self.config['serial_id']
+                        }
+                        self.mqtt.publish_attendance(payload)
+                else:
+                    # Unknown: Red Box
+                    draw_bbox_unknown(frame, bbox)
                     
-                    # 5. Publish to MQTT
-                    payload = {
-                        "log_id": log_id,
-                        "name": name,
-                        "direction": direction,
-                        "timestamp": time.time(),
-                        "device_id": self.config['serial_id']
-                    }
-                    self.mqtt.publish_attendance(payload)
+            except Exception as e:
+                logger.error(f"Recog error: {e}")
+
+        # 3. Store annotated frame for streaming
+        with self.frame_lock:
+            self.latest_frame = frame
 
     def start_loop(self):
         self.running = True
-        cap = cv2.VideoCapture(self.config['camera']['index'])
-        # Set camera props...
+        logger.info(f"Opening Camera Index: {self.config['camera']['index']}")
         
+        # Force MJPG for USB cams to get better framerate
+        cap = cv2.VideoCapture(self.config['camera']['index'])
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config['camera']['width'])
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config['camera']['height'])
+
         logger.info("Starting Inference Loop")
         while self.running:
             ret, frame = cap.read()
             if not ret:
-                logger.error("Camera failed")
+                logger.error("Camera failed to grab frame")
                 time.sleep(1)
                 continue
             
             try:
                 self.process_frame(frame)
             except Exception as e:
-                logger.error(f"Inference error: {e}")
-                
-            # Sleep slightly to free up CPU for API/MQTT if needed
+                logger.error(f"Inference Loop Error: {e}")
+            
             time.sleep(0.01)
             
         cap.release()
