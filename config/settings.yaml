@@ -1,18 +1,18 @@
 mqtt:
-  broker: "mqtt.your-cloud-server.com"
+  broker: "127.0.0.1"  # Changed to localhost
   port: 1883
-  username: "device_user"
-  password: "device_password"
+  username: ""         # Empty for local test
+  password: ""         # Empty for local test
   topic_prefix: "devices"
 
 camera:
   index: 0
-  width: 1280
-  height: 720
+  width: 640
+  height: 480
   rotation: 0
 
 system:
-  direction: "IN" # or "OUT"
-  debounce_seconds: 60 # Don't log the same person twice within 1 minute
+  direction: "IN"
+  debounce_seconds: 10 # Lower this for easier testing
   similarity_threshold: 0.45
   confidence_threshold: 0.5
