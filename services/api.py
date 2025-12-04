@@ -74,3 +74,66 @@ async def add_face(name: str, file: UploadFile = File(...)):
     engine_instance.vectordb.save()
     
     return {"status": "success", "name": name}
+
+@app.get("/faces/list")
+def list_stored_faces():
+    """Debug: Show all names currently in the Vector DB"""
+    if not engine_instance:
+        return {"error": "Engine not initialized"}
+    
+    # Access metadata directly from the DB
+    names = engine_instance.vectordb.metadata
+    return {
+        "count": len(names),
+        "identities": names
+    }
+
+@app.post("/faces/debug")
+async def debug_face_search(file: UploadFile = File(...)):
+    """Debug: Upload a photo and get the raw similarity score, ignoring thresholds"""
+    contents = await file.read()
+    nparr = np.frombuffer(contents, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if img is None:
+        raise HTTPException(status_code=400, detail="Invalid image")
+
+    # 1. Detect
+    bboxes, kpss = engine_instance.detector.detect(img, max_num=1)
+    if len(kpss) == 0:
+        return {"status": "fail", "reason": "No face detected in image"}
+
+    # 2. Get Embedding
+    embedding = engine_instance.recognizer.get_embedding(img, kpss[0])
+    
+    # 3. Manual Search (Bypassing the threshold check in vector_db.search)
+    # We want to see the top match, even if it's 0.1 (terrible match)
+    db = engine_instance.vectordb
+    
+    if db.index.ntotal == 0:
+        return {"status": "fail", "reason": "Database is empty"}
+
+    if embedding.ndim == 1:
+        embedding = np.expand_dims(embedding, axis=0)
+    
+    # Search for top 1
+    import faiss # Import locally just for this debug function if needed
+    # Ensure normalized (our add_face does this, but good to ensure)
+    faiss.normalize_L2(embedding)
+    
+    D, I = db.index.search(embedding.astype(np.float32), 1)
+    
+    score = float(D[0][0])
+    index_id = int(I[0][0])
+    
+    matched_name = "Unknown"
+    if 0 <= index_id < len(db.metadata):
+        matched_name = db.metadata[index_id]
+
+    return {
+        "status": "success",
+        "best_match_name": matched_name,
+        "similarity_score": score,
+        "threshold_setting": engine_instance.config['system']['similarity_threshold'],
+        "is_match": score > engine_instance.config['system']['similarity_threshold']
+    }
