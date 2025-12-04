@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from skimage.transform import SimilarityTransform
+from typing import Tuple
 
 # Reference alignment for facial landmarks (ArcFace)
 reference_alignment: np.ndarray = np.array(
@@ -14,8 +15,13 @@ reference_alignment: np.ndarray = np.array(
     dtype=np.float32
 )
 
-def estimate_norm(landmark: np.ndarray, image_size: int = 112):
-    assert landmark.shape == (5, 2)
+def estimate_norm(landmark: np.ndarray, image_size: int = 112) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Estimate the normalization transformation matrix for facial landmarks.
+    """
+    assert landmark.shape == (5, 2), "Landmark array must have shape (5, 2)."
+    assert image_size % 112 == 0 or image_size % 128 == 0, "Image size must be a multiple of 112 or 128."
+
     if image_size % 112 == 0:
         ratio = float(image_size) / 112.0
         diff_x = 0.0
@@ -23,16 +29,29 @@ def estimate_norm(landmark: np.ndarray, image_size: int = 112):
         ratio = float(image_size) / 128.0
         diff_x = 8.0 * ratio
 
+    # Adjust reference alignment based on ratio and diff_x
     alignment = reference_alignment * ratio
     alignment[:, 0] += diff_x
 
+    # Compute the transformation matrix
     transform = SimilarityTransform()
     transform.estimate(landmark, alignment)
-    return transform.params[0:2, :], np.linalg.inv(transform.params)[0:2, :]
 
-def face_alignment(image: np.ndarray, landmark: np.ndarray, image_size: int = 112):
+    matrix = transform.params[0:2, :]
+    inverse_matrix = np.linalg.inv(transform.params)[0:2, :]
+
+    return matrix, inverse_matrix
+
+def face_alignment(image: np.ndarray, landmark: np.ndarray, image_size: int = 112) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Align the face in the input image based on the given facial landmarks.
+    """
+    # Get the transformation matrix
     M, M_inv = estimate_norm(landmark, image_size)
+
+    # Warp the input image to align the face
     warped = cv2.warpAffine(image, M, (image_size, image_size), borderValue=0.0)
+
     return warped, M_inv
 
 def distance2bbox(points, distance, max_shape=None):
@@ -59,25 +78,36 @@ def distance2kps(points, distance, max_shape=None):
         preds.append(py)
     return np.stack(preds, axis=-1)
 
-# --- Visualization Helpers (Kept for your Video Feed) ---
-
 def draw_bbox_info(frame, bbox, similarity, name, color=(0, 255, 0)):
-    # bbox usually comes as [x1, y1, x2, y2, score]
+    # FIX: bbox might have 5 elements (coords + score), we only want coords
     x1, y1, x2, y2 = map(int, bbox[:4])
 
     label = f"{name}: {similarity:.2f}"
-    # Ensure text is readable
+    
+    # Ensure text stays within frame
     text_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
     
+    cv2.putText(
+        frame, label, (x1, text_y),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2
+    )
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-    cv2.putText(frame, label, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
 
-    # Similarity Bar
+    # Draw Similarity Bar
+    rect_x_start = x2 + 5
+    rect_x_end = rect_x_start + 10
+    rect_y_end = y2
     rect_height = int(similarity * (y2 - y1))
-    cv2.rectangle(frame, (x2+5, y2-rect_height), (x2+10, y2), color, cv2.FILLED)
+    rect_y_start = rect_y_end - rect_height
+    
+    try:
+        cv2.rectangle(frame, (rect_x_start, rect_y_start), (rect_x_end, rect_y_end), color, cv2.FILLED)
+    except:
+        pass
 
 def draw_bbox_unknown(frame, bbox):
     x1, y1, x2, y2 = map(int, bbox[:4])
     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+    
     text_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
     cv2.putText(frame, "Unknown", (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
