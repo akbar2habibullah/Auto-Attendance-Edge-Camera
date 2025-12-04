@@ -47,7 +47,7 @@ class SCRFD:
         self.rknn = RKNNLite()
         if self.rknn.load_rknn(self.model_path) != 0:
             raise RuntimeError("Failed to load RKNN model")
-        if self.rknn.init_runtime(core_mask=RKNNLite.NPU_CORE_0) != 0:
+        if self.rknn.init_runtime() != 0:
             raise RuntimeError("Failed to init RKNN runtime")
 
     def _init_onnx(self):

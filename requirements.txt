@@ -7,3 +7,4 @@ opencv-python-headless
 faiss-cpu
 requests
 aiofiles
+python-multipart
