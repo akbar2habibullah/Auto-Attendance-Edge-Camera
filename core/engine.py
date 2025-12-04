@@ -28,7 +28,7 @@ class InferenceEngine:
         # Debounce Cache: {name: last_seen_timestamp}
         self.debounce_cache = {}
         self.debounce_lock = threading.Lock()
-7
+
     def _check_debounce(self, name: str) -> bool:
         """Returns True if the person should be logged, False if recently seen."""
         now = time.time()
