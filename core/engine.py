@@ -34,7 +34,6 @@ class InferenceEngine:
         self.frame_lock = threading.Lock()
 
     def _check_debounce(self, name: str) -> bool:
-        # ... (Keep existing debounce logic same as before) ...
         now = time.time()
         threshold = self.config['system']['debounce_seconds']
         with self.debounce_lock:
@@ -61,28 +60,41 @@ class InferenceEngine:
             # Get embedding
             try:
                 embedding = self.recognizer.get_embedding(frame, kps)
-                name, similarity = self.vectordb.search(embedding, threshold=self.config['system']['similarity_threshold'])
+
+                # Search directly to get the raw score
+                name_found, score = self.vectordb.search(embedding, threshold=0.0) # threshold 0 to get ANY match
                 
-                if name != "Unknown":
-                    # Valid Match: Green Box
-                    draw_bbox_info(frame, bbox, similarity, name, (0, 255, 0))
-                    
-                    # Log Attendance
-                    if self._check_debounce(name):
+                final_name = "Unknown"
+                
+                # Check against actual config threshold
+                real_threshold = self.config['system']['similarity_threshold']
+                
+                if score > real_threshold and name_found != "Unknown":
+                    final_name = name_found
+                    color = (0, 255, 0) # Green
+                else:
+                    color = (0, 0, 255) # Red
+                    # LOGGING: Print why it failed
+                    if score > 0.1: # Only log if there is a faint resemblance
+                        logger.info(f"Unknown Face detected. Best match: {name_found} with score: {score:.2f} (Needs > {real_threshold})")
+
+                # Drawing
+                draw_bbox_info(frame, bbox, score, final_name, color)
+                
+                # Logic for valid attendance
+                if final_name != "Unknown":
+                     if self._check_debounce(final_name):
                         direction = self.config['system']['direction']
-                        logger.info(f"Attendance: {name} ({direction}) - Sim: {similarity:.2f}")
+                        logger.info(f"Attendance: {final_name} ({direction}) - Sim: {score:.2f}")
                         
-                        log_id = self.storage.add_log(name, direction, similarity)
+                        log_id = self.storage.add_log(final_name, direction, score)
                         payload = {
-                            "log_id": log_id, "name": name, 
+                            "log_id": log_id, "name": final_name, 
                             "direction": direction, "timestamp": time.time(),
                             "device_id": self.config['serial_id']
                         }
                         self.mqtt.publish_attendance(payload)
-                else:
-                    # Unknown: Red Box
-                    draw_bbox_unknown(frame, bbox)
-                    
+
             except Exception as e:
                 logger.error(f"Recog error: {e}")
 
