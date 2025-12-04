@@ -53,24 +53,27 @@ class ArcFace:
         # 2. Inference
         if self.is_rknn and RKNN_AVAILABLE:
             # RKNN expects RGB, Uint8. 
-            # Note: Mean/Std normalization is typically baked into the RKNN model during conversion
             rgb_face = cv2.cvtColor(aligned_face, cv2.COLOR_BGR2RGB)
             input_blob = np.expand_dims(rgb_face, axis=0)
             
             outputs = self.rknn.inference(inputs=[input_blob], data_format='nhwc')
-            embedding = outputs[0][0] # Flatten batch dim
+            
+            # SAFE OUTPUT EXTRACTION
+            # outputs[0] is the tensor. It might be (1, 512) or (512,)
+            embedding = outputs[0]
+            if embedding.ndim > 1:
+                embedding = embedding.flatten()
             
         else:
             # ONNX standard preprocessing
-            # (x - 127.5) / 127.5 -> NCHW
             blob = cv2.dnn.blobFromImage(
                 aligned_face, 1.0/127.5, self.input_size, 
                 (127.5, 127.5, 127.5), swapRB=True
             )
             outputs = self.session.run(None, {self.input_name: blob})
-            embedding = outputs[0][0]
+            embedding = outputs[0].flatten()
 
-        # 3. Normalize (L2) - Important for cosine similarity
+        # 3. Normalize (L2) - Crucial for Cosine Similarity
         norm = np.linalg.norm(embedding)
         if norm == 0:
             return embedding

@@ -12,18 +12,32 @@ REFERENCE_LANDMARKS = np.array([
 ], dtype=np.float32)
 
 def estimate_norm(landmark: np.ndarray, image_size: int = 112):
-    """Calculate the Affine Transform Matrix to align face."""
+    """
+    Calculate the Affine Transform Matrix to align face.
+    Matches original repo logic exactly.
+    """
     assert landmark.shape == (5, 2)
     
+    # Logic to handle 112x112 vs 128x128
+    if image_size % 112 == 0:
+        ratio = float(image_size) / 112.0
+        diff_x = 0.0
+    else:
+        ratio = float(image_size) / 128.0
+        diff_x = 8.0 * ratio
+
+    # Adjust reference alignment based on ratio
+    alignment = REFERENCE_LANDMARKS * ratio
+    alignment[:, 0] += diff_x
+
     tform = SimilarityTransform()
-    # Align the detected landmarks to the reference standard
-    tform.estimate(landmark, REFERENCE_LANDMARKS)
+    tform.estimate(landmark, alignment)
     M = tform.params[0:2, :]
     return M
 
 def face_alignment(image: np.ndarray, landmark: np.ndarray) -> np.ndarray:
     """Crop and align face to 112x112."""
-    M = estimate_norm(landmark)
+    M = estimate_norm(landmark, 112)
     warped = cv2.warpAffine(image, M, (112, 112), borderValue=0.0)
     return warped
 
@@ -54,40 +68,23 @@ def distance2kps(points, distance, max_shape=None):
     return np.stack(preds, axis=-1)
 
 def draw_bbox_info(frame, bbox, similarity, name, color=(0, 255, 0)):
-    # FIX: bbox has 5 elements (coords + score), we only want the first 4 coords
     x1, y1, x2, y2 = map(int, bbox[:4]) 
-
-    # Draw Name & Score
     label = f"{name}: {similarity:.2f}"
-    # Ensure text stays within frame
     text_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
-    
-    cv2.putText(
-        frame, label, (x1, text_y),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2
-    )
-
-    # Draw Box
+    cv2.putText(frame, label, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-    # Draw Similarity Bar (visual indicator)
     rect_x_start = x2 + 5
     rect_x_end = rect_x_start + 10
     rect_y_end = y2
     rect_height = int(similarity * (y2 - y1))
     rect_y_start = rect_y_end - rect_height
-    
-    # Clip drawing to avoid errors if coordinates are weird
     try:
         cv2.rectangle(frame, (rect_x_start, rect_y_start), (rect_x_end, rect_y_end), color, cv2.FILLED)
     except:
         pass
 
 def draw_bbox_unknown(frame, bbox):
-    # FIX: Slice bbox[:4] here too
     x1, y1, x2, y2 = map(int, bbox[:4])
-    
-    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2) # Red box
-    
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
     text_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
     cv2.putText(frame, "Unknown", (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
