@@ -21,14 +21,14 @@ class InferenceEngine:
         self.running = False
         
         # Load Models
-        self.detector = SCRFD(model_path="weights/det_10g.rknn", conf_thres=config['system']['confidence_threshold'])
-        self.recognizer = ArcFace(model_path="weights/w600k_mbf.rknn")
+        self.detector = SCRFD(model_path="weights/det_500m.rknn", conf_thres=config['system']['confidence_threshold'])
+        self.recognizer = ArcFace(model_path="weights/w600k_r50.rknn")
         self.vectordb = VectorDB(db_path="./data/vectordb")
         
         # Debounce Cache: {name: last_seen_timestamp}
         self.debounce_cache = {}
         self.debounce_lock = threading.Lock()
-
+7
     def _check_debounce(self, name: str) -> bool:
         """Returns True if the person should be logged, False if recently seen."""
         now = time.time()
