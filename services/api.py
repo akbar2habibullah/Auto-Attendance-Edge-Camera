@@ -1,14 +1,23 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import StreamingResponse # Import this
+from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from typing import List
 import cv2
 import numpy as np
 import time
+import yaml
+import io
 
 app = FastAPI(title="Edge Attendance API", version="1.0.0")
 
+# Mount the static folder for the UI
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Dependency injection placeholder
 engine_instance = None 
+class ZoneConfig(BaseModel):
+    points: List[List[int]] # e.g., [[0,0], [100,0], [100,100]]
 
 def generate_frames():
     """Yields frames in MJPEG format"""
@@ -137,3 +146,43 @@ async def debug_face_search(file: UploadFile = File(...)):
         "threshold_setting": engine_instance.config['system']['similarity_threshold'],
         "is_match": score > engine_instance.config['system']['similarity_threshold']
     }
+
+@app.get("/snapshot")
+def get_snapshot():
+    """Returns a single static image for the UI canvas"""
+    if engine_instance and engine_instance.latest_frame is not None:
+        ret, buffer = cv2.imencode('.jpg', engine_instance.latest_frame)
+        return StreamingResponse(io.BytesIO(buffer.tobytes()), media_type="image/jpeg")
+    return {"error": "Camera not ready"}
+
+@app.get("/zone")
+def get_zone():
+    """Get current polygon points"""
+    # Convert numpy array back to list
+    if engine_instance:
+        return {"points": engine_instance.zone_points.tolist()}
+    return {"points": []}
+
+@app.post("/zone")
+def set_zone(config: ZoneConfig):
+    """Update polygon points and save to YAML"""
+    if not engine_instance:
+        raise HTTPException(status_code=500, detail="Engine not ready")
+        
+    # 1. Update running engine immediately
+    engine_instance.update_zone(config.points)
+    
+    # 2. Persist to settings.yaml
+    try:
+        with open("config/settings.yaml", "r") as f:
+            yaml_data = yaml.safe_load(f)
+        
+        yaml_data['system']['zone'] = config.points
+        
+        with open("config/settings.yaml", "w") as f:
+            yaml.dump(yaml_data, f)
+            
+    except Exception as e:
+        print(f"Failed to save config: {e}")
+        
+    return {"status": "updated", "points": config.points}

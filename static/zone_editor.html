@@ -1,0 +1,116 @@
+<!-- FILE: static/zone_editor.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Attendance Zone Editor</title>
+    <style>
+        body { font-family: sans-serif; background: #222; color: white; text-align: center; }
+        #container { position: relative; display: inline-block; margin-top: 20px; }
+        canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+        img { display: block; max-width: 100%; }
+        .controls { margin: 20px; }
+        button { padding: 10px 20px; cursor: pointer; font-size: 16px; margin: 0 5px; }
+        .save { background-color: #28a745; color: white; border: none; }
+        .clear { background-color: #dc3545; color: white; border: none; }
+    </style>
+</head>
+<body>
+    <h1>📍 Zone Configuration</h1>
+    <p>Click on the image to define the active attendance zone. Points must be drawn in order.</p>
+    
+    <div class="controls">
+        <button onclick="clearPoly()" class="clear">Clear Zone</button>
+        <button onclick="savePoly()" class="save">Save Zone</button>
+        <button onclick="location.reload()">Refresh Image</button>
+    </div>
+
+    <div id="container">
+        <!-- We grab a snapshot instead of stream for easier drawing -->
+        <img id="cam-view" src="/snapshot" onload="initCanvas()" />
+        <canvas id="overlay"></canvas>
+    </div>
+
+    <script>
+        let points = [];
+        let canvas, ctx, img;
+        const SCALE_FACTOR = 1; // Adjust if API returns different res than display
+
+        async function initCanvas() {
+            img = document.getElementById('cam-view');
+            canvas = document.getElementById('overlay');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx = canvas.getContext('2d');
+            
+            // Fetch existing zone
+            try {
+                const res = await fetch('/zone');
+                const data = await res.json();
+                if(data.points) {
+                    points = data.points;
+                    draw();
+                }
+            } catch(e) { console.error(e); }
+
+            canvas.addEventListener('mousedown', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const x = Math.round(e.clientX - rect.left);
+                const y = Math.round(e.clientY - rect.top);
+                points.push([x, y]);
+                draw();
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (points.length === 0) return;
+
+            ctx.beginPath();
+            ctx.moveTo(points[0][0], points[0][1]);
+            for (let i = 1; i < points.length; i++) {
+                ctx.lineTo(points[i][0], points[i][1]);
+            }
+            ctx.closePath();
+            
+            // Draw lines
+            ctx.strokeStyle = '#00FF00';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Fill transparent
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+            ctx.fill();
+
+            // Draw points
+            ctx.fillStyle = 'red';
+            for (let p of points) {
+                ctx.beginPath();
+                ctx.arc(p[0], p[1], 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function clearPoly() {
+            points = [];
+            draw();
+        }
+
+        async function savePoly() {
+            if (points.length < 3) {
+                alert("Zone needs at least 3 points!");
+                return;
+            }
+            try {
+                const res = await fetch('/zone', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({points: points})
+                });
+                if(res.ok) alert("Zone Saved!");
+                else alert("Error saving zone");
+            } catch(e) { alert("Network error"); }
+        }
+    </script>
+</body>
+</html>

@@ -13,6 +13,9 @@ camera:
 
 system:
   direction: "IN"
-  debounce_seconds: 10 # Lower this for easier testing
+  debounce_seconds: 10
   similarity_threshold: 0.45
   confidence_threshold: 0.5
+  # ADD THIS: Default zone (Top-Left, Top-Right, Bot-Right, Bot-Left)
+  # If empty [], it scans the whole screen.
+  zone: [[0,0], [640,0], [640,480], [0,480]]

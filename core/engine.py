@@ -24,6 +24,12 @@ class InferenceEngine:
         self.detector = SCRFD(model_path="weights/det_500m.rknn", conf_thres=config['system']['confidence_threshold'])
         self.recognizer = ArcFace(model_path="weights/w600k_r50.rknn")
         self.vectordb = VectorDB(db_path="data/vectordb")
+
+        self.zone_points = np.array(config['system'].get('zone', []), np.int32)
+        if len(self.zone_points) < 3:
+             # Default to full screen if invalid
+             h, w = config['camera']['height'], config['camera']['width']
+             self.zone_points = np.array([[0,0], [w,0], [w,h], [0,h]], np.int32)
         
         # Debounce logic
         self.debounce_cache = {}
@@ -32,6 +38,11 @@ class InferenceEngine:
         # Visualization Storage
         self.latest_frame = None # Store the annotated frame here
         self.frame_lock = threading.Lock()
+
+    def update_zone(self, points):
+        """Called by API to update zone dynamically"""
+        self.zone_points = np.array(points, np.int32)
+        logger.info(f"Attendance Zone Updated: {points}")
 
     def _check_debounce(self, name: str) -> bool:
         now = time.time()
@@ -46,6 +57,8 @@ class InferenceEngine:
     def process_frame(self, frame):
         # 1. Detect
         bboxes, kpss = self.detector.detect(frame, max_num=5)
+
+        cv2.polylines(frame, [self.zone_points.reshape(-1, 1, 2)], True, (0, 255, 0), 2)
         
         # If no faces, just update latest frame and return
         if len(bboxes) == 0:
@@ -56,6 +69,20 @@ class InferenceEngine:
         # 2. Iterate faces
         for i, kps in enumerate(kpss):
             bbox = bboxes[i]
+
+            # Calculate Center of Face (using bounding box)
+            cx = int((bbox[0] + bbox[2]) / 2)
+            cy = int((bbox[1] + bbox[3]) / 2)
+            
+            # PointPolygonTest: Returns > 0 if inside, < 0 if outside, 0 if on edge
+            in_zone = cv2.pointPolygonTest(self.zone_points, (cx, cy), False) >= 0
+            
+            if not in_zone:
+                # Draw Grey box for ignored faces
+                draw_bbox_unknown(frame, bbox) # Reuse utility, or make a new grey one
+                cv2.putText(frame, "OUTSIDE ZONE", (int(bbox[0]), int(bbox[1])-25), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128,128,128), 1)
+                continue # SKIP Recognition for this face
             
             # Get embedding
             try:
